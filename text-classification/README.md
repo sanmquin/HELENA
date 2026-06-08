@@ -15,7 +15,7 @@ This directory contains a Python notebook for evaluating text classification acc
 
 ## Directory Structure
 
-- `classification_evaluation.ipynb`: The main notebook.
+- `classification_evaluation.ipynb`: The main notebook (optimized for Google Colab).
 - `outputs/`: Directory for storing intermediate LLM responses and results (to avoid hitting quotas).
 
 ## Reusability and Types
@@ -23,6 +23,8 @@ This directory contains a Python notebook for evaluating text classification acc
 To enable reusability for future dataset building notebooks, the following types and structures are used:
 
 ### Input Data Format (JSON)
+Path: `/content/drive/MyDrive/Graphiko/exports/base_data/latest/channel_titles.json`
+
 ```typescript
 interface Dataset {
   [categoryName: string]: string[]; // Array of texts belonging to the category
@@ -48,15 +50,10 @@ type ClassificationResults = ClassificationResult[];
 
 ## Setup
 
-1. Install dependencies:
-   ```bash
-   pip install google-genai pandas numpy matplotlib seaborn scikit-learn scipy
-   ```
-2. Set up your Google Gemini API Key:
-   ```bash
-   export GOOGLE_API_KEY='your_api_key'
-   ```
-3. Run the notebook `classification_evaluation.ipynb`.
+1. Open `classification_evaluation.ipynb` in Google Colab.
+2. Ensure you have access to the dataset at `/content/drive/MyDrive/Graphiko/exports/base_data/latest/channel_titles.json`.
+3. Set up your Google Gemini API Key as an environment variable or in the `CONFIG` dictionary.
+4. Run the cells.
 
 ## Semantic Distance Metric
 
