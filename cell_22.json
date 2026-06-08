@@ -1,0 +1,38 @@
+{
+  "cell_type": "code",
+  "execution_count": null,
+  "id": "6c2a874e",
+  "metadata": {
+    "id": "6c2a874e"
+  },
+  "outputs": [],
+  "source": [
+    "ablation_descriptions = load_cache('ablation_descriptions')\n",
+    "\n",
+    "if not ablation_descriptions:\n",
+    "    # Generate ALL descriptions in a single request\n",
+    "    all_train_formatted = json.dumps(train_data)\n",
+    "    prompt = f'Generate concise descriptions for ALL the following categories based on their examples:\\n{all_train_formatted}\\nReturn a JSON object where keys are category names and values are descriptions.'\n",
+    "\n",
+    "    response = client.models.generate_content(model=CONFIG['MODEL_35'], contents=prompt)\n",
+    "    res_text = response.text.strip()\n",
+    "    if '```json' in res_text: res_text = res_text.split('```json')[1].split('```')[0]\n",
+    "    ablation_descriptions = json.loads(res_text)\n",
+    "    save_cache('ablation_descriptions', ablation_descriptions)\n",
+    "\n",
+    "print('Ablation descriptions generated.')\n",
+    "\n",
+    "# Run Classification for Ablation\n",
+    "df_results_ablation = classify_texts(all_train_texts, ablation_descriptions, CONFIG['MODEL_31'], 'classification_results_35')\n",
+    "\n",
+    "# Evaluate Ablation\n",
+    "evaluate_performance(df_results_ablation, '(Gemini 3.5 Flash - Ablation)')\n",
+    "\n",
+    "# Preservation Score for Ablation\n",
+    "pres_score_ab, dist_raw_ab, dist_desc_ab, cats_ab = calculate_preservation(train_data, ablation_descriptions)\n",
+    "print(f'Ablation Semantic Distance Preservation Score: {pres_score_ab:.4f}')\n",
+    "\n",
+    "# Correlation for Ablation\n",
+    "analyze_correlation(df_results_ablation, dist_raw_ab, dist_desc_ab, cats_ab)"
+  ]
+}

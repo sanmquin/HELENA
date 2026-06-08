@@ -1,0 +1,41 @@
+{
+  "cell_type": "code",
+  "execution_count": null,
+  "id": "bc6dd768",
+  "metadata": {
+    "id": "bc6dd768"
+  },
+  "outputs": [],
+  "source": [
+    "def analyze_correlation(df_results, dist_raw, dist_desc, categories):\n",
+    "    # Accuracy per category\n",
+    "    cat_accuracy = df_results.groupby('label').apply(lambda x: accuracy_score(x['label'], x['prediction']))\n",
+    "\n",
+    "    # Distance preservation per category (mean correlation of its distances to others)\n",
+    "    cat_preservation = {}\n",
+    "    for i, cat in enumerate(categories):\n",
+    "        cat_preservation[cat] = pearsonr(dist_raw[i], dist_desc[i])[0]\n",
+    "\n",
+    "    analysis_df = pd.DataFrame({\n",
+    "        'Accuracy': cat_accuracy,\n",
+    "        'Preservation': pd.Series(cat_preservation)\n",
+    "    })\n",
+    "\n",
+    "    plt.figure(figsize=(8, 6))\n",
+    "    sns.regplot(data=analysis_df, x='Preservation', y='Accuracy')\n",
+    "    plt.title('Correlation: Description Accuracy vs Semantic Preservation')\n",
+    "    plt.show()\n",
+    "\n",
+    "    corr_val, p_val = pearsonr(analysis_df['Preservation'], analysis_df['Accuracy'])\n",
+    "    print(f'Pearson Correlation: {corr_val:.4f} (p={p_val:.4f})')\n",
+    "\n",
+    "    print('\\nFinal Conclusion:')\n",
+    "    if corr_val > 0.5 and p_val < 0.05:\n",
+    "        print('There IS a significant positive correlation. Higher preservation of semantic distances leads to better classification accuracy.')\n",
+    "    else:\n",
+    "        print('There is NO strong evidence of correlation in this dataset. Accuracy may be driven by other factors like description clarity or category distinctness.')\n",
+    "    return corr_val\n",
+    "\n",
+    "analyze_correlation(df_results, dist_raw, dist_desc, categories)"
+  ]
+}

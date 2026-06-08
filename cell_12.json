@@ -1,0 +1,37 @@
+{
+  "cell_type": "code",
+  "execution_count": 11,
+  "id": "0048f5db",
+  "metadata": {
+    "colab": {
+      "base_uri": "https://localhost:8080/"
+    },
+    "id": "0048f5db",
+    "outputId": "be930a4f-68e5-4f52-e57a-adc2eb3818bb"
+  },
+  "outputs": [
+    {
+      "output_type": "stream",
+      "name": "stdout",
+      "text": [
+        "Descriptions generated for all categories.\n"
+      ]
+    }
+  ],
+  "source": [
+    "import time\n",
+    "descriptions_31 = load_cache('descriptions_31') or {}\n",
+    "\n",
+    "for category, texts in train_data.items():\n",
+    "    if category in descriptions_31:\n",
+    "        continue\n",
+    "\n",
+    "    prompt = f'Provide a concise description of the following category based on these examples: {category}\\nExamples:\\n' + '\\n'.join(texts)\n",
+    "    response = client.models.generate_content(model=CONFIG['MODEL_31'], contents=prompt)\n",
+    "    descriptions_31[category] = response.text\n",
+    "    save_cache('descriptions_31', descriptions_31)\n",
+    "    time.sleep(5)  # To avoid hitting quotas\n",
+    "\n",
+    "print('Descriptions generated for all categories.')"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "cell_type": "code",
+  "execution_count": 6,
+  "id": "1611963e",
+  "metadata": {
+    "id": "1611963e"
+  },
+  "outputs": [],
+  "source": [
+    "def get_cache_path(name):\n",
+    "    return os.path.join(CONFIG['OUTPUT_DIR'], f'{name}.json')\n",
+    "\n",
+    "def save_cache(name, data):\n",
+    "    with open(get_cache_path(name), 'w') as f:\n",
+    "        json.dump(data, f)\n",
+    "\n",
+    "def load_cache(name):\n",
+    "    path = get_cache_path(name)\n",
+    "    if CONFIG['REUSE_CACHE'] and os.path.exists(path):\n",
+    "        with open(path, 'r') as f:\n",
+    "            return json.load(f)\n",
+    "    return None"
+  ]
+}
