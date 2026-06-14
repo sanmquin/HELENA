@@ -24,9 +24,11 @@ type channels = {
 - `numeric_inference.ipynb`: This notebook performs the following:
     1. Embeds video titles using `sentence-transformers`.
     2. Splits data into 80% training and 20% testing per channel.
-    3. Reduces dimensionality to 20 dimensions using PCA.
-    4. Trains per-channel linear regression models.
-    5. Evaluates predictions and analyzes dimension importance.
+    3. Reduces dimensionality to 15 dimensions using PCA.
+    4. Performs global Z-score normalization of logarithmic views.
+    5. Trains a global OLS model to identify the 5 most significant semantic dimensions.
+    6. Trains channel-specific linear regression models using the selected dimensions.
+    7. Provides expanded evaluation and debugging analysis, including residual plots and global vs. local weight comparisons.
 
 ## Google Colab Usage
 The notebooks are designed to be run in Google Colab:
