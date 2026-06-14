@@ -30,7 +30,7 @@ def create_notebook():
                     "from datetime import datetime\n",
                     "from googleapiclient.discovery import build\n",
                     "from googleapiclient.errors import HttpError\n",
-                    "from google.colab import drive\n",
+                    "from google.colab import drive, userdata\n",
                     "\n",
                     "try:\n",
                     "    drive.mount('/content/drive')\n",
@@ -44,7 +44,7 @@ def create_notebook():
                 "source": [
                     "## 2. Configuration\n",
                     "\n",
-                    "Set up your API key and paths."
+                    "Retrieve your API key from Colab secrets and set up paths."
                 ]
             },
             {
@@ -54,7 +54,12 @@ def create_notebook():
                 "outputs": [],
                 "source": [
                     "# Configuration\n",
-                    "YOUTUBE_API_KEY = 'YOUR_API_KEY_HERE' # Replace with your API Key\n",
+                    "try:\n",
+                    "    YOUTUBE_API_KEY = userdata.get('YOUTUBE_API_KEY')\n",
+                    "except Exception:\n",
+                    "    print(\"Error: Could not retrieve YOUTUBE_API_KEY from Colab secrets.\")\n",
+                    "    YOUTUBE_API_KEY = None\n",
+                    "\n",
                     "INPUT_CHANNELS_PATH = '/content/drive/MyDrive/Graphiko/exports/base_data/latest/channels_structured.json'\n",
                     "OUTPUT_DATA_PATH = '/content/drive/MyDrive/Graphiko/exports/base_data/latest/channels_structured_v2.json'\n",
                     "CACHE_DIR = '/content/drive/MyDrive/youtube_api_cache/'\n",
@@ -63,7 +68,10 @@ def create_notebook():
                     "if not os.path.exists(CACHE_DIR):\n",
                     "    os.makedirs(CACHE_DIR, exist_ok=True)\n",
                     "\n",
-                    "youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)"
+                    "if YOUTUBE_API_KEY:\n",
+                    "    youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)\n",
+                    "else:\n",
+                    "    print(\"YouTube service NOT initialized. Please set YOUTUBE_API_KEY in Colab secrets.\")"
                 ]
             },
             {
