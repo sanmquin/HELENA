@@ -28,6 +28,10 @@ type channels = {
     4. Trains per-channel Ordinary Least Squares (OLS) models.
     5. Evaluates predictions and analyzes dimension importance.
     6. Identifies the 10 most significant channels and exports an evaluation dataset.
+- `llm-pipeline.ipynb`: This notebook uses Gemini 3.1 Flash lite to generate qualitative descriptions:
+    1. Analyzes performance drivers for the top/bottom 25 videos per channel.
+    2. Defines semantic meanings for the 15 PCA dimensions using the MECE framework.
+    3. Generates channel-specific performance explanations based on significant dimensions.
 
 ## Exported Evaluation Dataset
 The notebook exports a dataset of the top 10 most significant channels (based on F-statistic p-value) to `top_significant_channels_eval.json`.
@@ -61,6 +65,28 @@ The models were trained using OLS on `log1p(views)`. To perform inference:
 1. Obtain the 15D PCA embedding of a title.
 2. Calculate: `prediction = intercept + sum(coefficients[i] * embedding[i])`
 3. Convert back to views: `views = exp(prediction) - 1`
+
+## LLM Analysis Results
+The `llm-pipeline.ipynb` notebook exports its findings to `llm_analysis_results.json`.
+
+### Schema
+```typescript
+type LLMAnalysisResults = {
+    "global_performance_descriptions": {
+        [channel_id: string]: string // Explanation of what makes videos perform
+    },
+    "dimension_definitions": string[], // 15 MECE descriptions of PCA dimensions
+    "channel_significant_dimension_analysis": {
+        [channel_id: string]: string // Explanation of performance drivers via significant dims
+    },
+    "metadata": {
+        "generated_at": string,
+        "model": string,
+        "input_file": string,
+        "num_dimensions": number
+    }
+}
+```
 
 ## Google Colab Usage
 The notebooks are designed to be run in Google Colab:
