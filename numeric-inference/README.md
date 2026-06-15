@@ -24,9 +24,43 @@ type channels = {
 - `numeric_inference.ipynb`: This notebook performs the following:
     1. Embeds video titles using `sentence-transformers`.
     2. Splits data into 80% training and 20% testing per channel.
-    3. Reduces dimensionality to 20 dimensions using PCA.
-    4. Trains per-channel linear regression models.
+    3. Reduces dimensionality to 15 dimensions using PCA.
+    4. Trains per-channel Ordinary Least Squares (OLS) models.
     5. Evaluates predictions and analyzes dimension importance.
+    6. Identifies the 10 most significant channels and exports an evaluation dataset.
+
+## Exported Evaluation Dataset
+The notebook exports a dataset of the top 10 most significant channels (based on F-statistic p-value) to `top_significant_channels_eval.json`.
+
+### Schema
+```typescript
+type EvaluationDataset = {
+    "channel_id": string,
+    "channel_name": string,
+    "model": {
+        "intercept": number,
+        "coefficients": number[], // 15 PCA dimensions
+        "p_values": number[]      // [intercept_p, dim1_p, ..., dim15_p]
+    },
+    "train_videos": VideoRecord[],
+    "test_videos": VideoRecord[]
+}[]
+
+type VideoRecord = {
+    "video_id": string,
+    "title": string,
+    "actual_views": number,
+    "predicted_views": number,
+    "publishedAt": string,
+    "reduced_embedding": number[] // 15 PCA dimensions
+}
+```
+
+### Model Usage
+The models were trained using OLS on `log1p(views)`. To perform inference:
+1. Obtain the 15D PCA embedding of a title.
+2. Calculate: `prediction = intercept + sum(coefficients[i] * embedding[i])`
+3. Convert back to views: `views = exp(prediction) - 1`
 
 ## Google Colab Usage
 The notebooks are designed to be run in Google Colab:
