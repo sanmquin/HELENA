@@ -32,6 +32,12 @@ type channels = {
     1. Analyzes performance drivers for the top/bottom 25 videos per channel.
     2. Defines semantic meanings for the 15 PCA dimensions using the MECE framework.
     3. Generates channel-specific performance explanations based on significant dimensions.
+- `feature-evaluation.ipynb`: This notebook evaluates Gemini 3.1 Flash lite's ability to label dimension contributions and predict views:
+    1. Identifies significant dimensions and calculates thresholds for labels (e.g., "extremely positively", "neutral").
+    2. Prompts Gemini to evaluate contributions and predict logarithmic views in batches of 10.
+    3. Analyzes correlation between label accuracy and prediction error.
+    4. Compares performance across various segments (Tails vs Center, Above vs Below Average).
+    5. Benchmarks qualitative LLM predictions against OLS numeric predictions.
 
 ## Exported Evaluation Dataset
 The notebook exports a dataset of the top 10 most significant channels (based on F-statistic p-value) to `top_significant_channels_eval.json`.
@@ -86,6 +92,28 @@ type LLMAnalysisResults = {
         "num_dimensions": number
     }
 }
+```
+
+## Feature Evaluation Results
+The `feature-evaluation.ipynb` notebook exports its results to `feature_evaluation_results.json`.
+
+### Schema
+```typescript
+type FeatureEvaluationResults = {
+    "channel_id": string,
+    "channel_name": string,
+    "results": {
+        "title": string,
+        "dimension_evaluations": {
+            [dimension_index: string]: string // Label (e.g., "positive", "neutral")
+        },
+        "predicted_log_views": number,
+        "video_id": string,
+        "actual_log_views": number,
+        "numeric_prediction": number,
+        "reduced_embedding": number[]
+    }[]
+}[]
 ```
 
 ## Google Colab Usage
