@@ -1,0 +1,412 @@
+import json
+import os
+
+def create_notebook():
+    nb = {
+        "cells": [
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    "# LLM Prediction Evaluation\n",
+                    "\n",
+                    "This notebook evaluates the predictive performance of Gemini 3.1 Flash lite using qualitative descriptions generated in the `llm-pipeline` notebook. We compare two approaches: Global Descriptions and Dimension Analysis, and benchmark them against the OLS numeric predictions.\n",
+                    "\n",
+                    "## 1. Setup and Dependencies"
+                ]
+            },
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": [
+                    "!pip install -q -U google-generativeai\n",
+                    "\n",
+                    "import os\n",
+                    "import json\n",
+                    "import time\n",
+                    "import numpy as np\n",
+                    "import pandas as pd\n",
+                    "import matplotlib.pyplot as plt\n",
+                    "import seaborn as sns\n",
+                    "from google.colab import drive, userdata\n",
+                    "import google.generativeai as genai\n",
+                    "from datetime import datetime\n",
+                    "from sklearn.metrics import mean_absolute_error, r2_score\n",
+                    "\n",
+                    "# Mount Google Drive\n",
+                    "drive.mount('/content/drive')\n",
+                    "\n",
+                    "# Configure Gemini\n",
+                    "GEMINI_API_KEY = userdata.get('GOOGLE_API_KEY')\n",
+                    "genai.configure(api_key=GEMINI_API_KEY)\n",
+                    "MODEL_NAME = 'gemini-3.1-flash-lite-latest'\n",
+                    "\n",
+                    "# Constants\n",
+                    "BASE_PATH = '/content/drive/MyDrive/numeric_inference_outputs/'\n",
+                    "EVAL_DATA_FILE = os.path.join(BASE_PATH, 'top_significant_channels_eval.json')\n",
+                    "LLM_ANALYSIS_FILE = os.path.join(BASE_PATH, 'llm_analysis_results.json')\n",
+                    "OUTPUT_FILE = os.path.join(BASE_PATH, 'llm_evaluation_results.json')\n",
+                    "CACHE_FILE = os.path.join(BASE_PATH, 'gemini_eval_cache.json')"
+                ]
+            },
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    "## 2. Load Data and Preprocess Statistics"
+                ]
+            },
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": [
+                    "with open(EVAL_DATA_FILE, 'r') as f:\n",
+                    "    eval_dataset = json.load(f)\n",
+                    "\n",
+                    "with open(LLM_ANALYSIS_FILE, 'r') as f:\n",
+                    "    llm_analysis = json.load(f)\n",
+                    "\n",
+                    "def calculate_channel_stats(train_videos):\n",
+                    "    log_views = np.log1p([v['actual_views'] for v in train_videos])\n",
+                    "    return {\n",
+                    "        'min': np.min(log_views),\n",
+                    "        'max': np.max(log_views),\n",
+                    "        'mean': np.mean(log_views),\n",
+                    "        'q1': np.percentile(log_views, 25),\n",
+                    "        'median': np.median(log_views),\n",
+                    "        'q3': np.percentile(log_views, 75)\n",
+                    "    }\n",
+                    "\n",
+                    "channel_stats = {c['channel_id']: calculate_channel_stats(c['train_videos']) for c in eval_dataset}\n",
+                    "print(f\"Loaded {len(eval_dataset)} channels and LLM analysis.\")"
+                ]
+            },
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    "## 3. Utility Functions (Cache & Retry)"
+                ]
+            },
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": [
+                    "def load_cache():\n",
+                    "    if os.path.exists(CACHE_FILE):\n",
+                    "        with open(CACHE_FILE, 'r') as f:\n",
+                    "            return json.load(f)\n",
+                    "    return {}\n",
+                    "\n",
+                    "def save_cache(cache):\n",
+                    "    with open(CACHE_FILE, 'w') as f:\n",
+                    "        json.dump(cache, f, indent=4)\n",
+                    "\n",
+                    "def get_gemini_completion(prompt, cache, key, retries=3, sleep_time=2):\n",
+                    "    if key in cache:\n",
+                    "        return cache[key]\n",
+                    "\n",
+                    "    model = genai.GenerativeModel(MODEL_NAME)\n",
+                    "\n",
+                    "    for i in range(retries):\n",
+                    "        try:\n",
+                    "            response = model.generate_content(prompt)\n",
+                    "            text = response.text\n",
+                    "            cache[key] = text\n",
+                    "            save_cache(cache)\n",
+                    "            time.sleep(sleep_time)\n",
+                    "            return text\n",
+                    "        except Exception as e:\n",
+                    "            print(f\"Error on attempt {i+1}: {e}\")\n",
+                    "            if i < retries - 1:\n",
+                    "                time.sleep(sleep_time * (i + 1))\n",
+                    "            else:\n",
+                    "                raise e\n",
+                    "    return None\n",
+                    "\n",
+                    "def parse_batch_response(text, expected_count):\n",
+                    "    \"\"\"Parses a JSON list of numbers from the LLM response.\"\"\"\n",
+                    "    import re\n",
+                    "    try:\n",
+                    "        # Try finding a JSON-like list in the text\n",
+                    "        match = re.search(r'\\[[\\s\\d.,-]*\\]', text)\n",
+                    "        if match:\n",
+                    "            nums = json.loads(match.group())\n",
+                    "            return [float(n) for n in nums][:expected_count]\n",
+                    "    except:\n",
+                    "        pass\n",
+                    "    \n",
+                    "    # Fallback to simple number extraction if JSON fails\n",
+                    "    numbers = re.findall(r\"\\b\\d+(?:\\.\\d+)?\\b\", text)\n",
+                    "    floats = [float(n) for n in numbers]\n",
+                    "    if len(floats) > expected_count:\n",
+                    "        # Heuristic: if we have indices + values, values are likely every second number\n",
+                    "        if len(floats) == expected_count * 2:\n",
+                    "            return floats[1::2]\n",
+                    "        return floats[:expected_count]\n",
+                    "    return floats"
+                ]
+            },
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    "## 4. Prediction Engine: Global Predictions\n",
+                    "\n",
+                    "Predicting views in batches of 10 using the global performance descriptions."
+                ]
+            },
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": [
+                    "cache = load_cache()\n",
+                    "global_results = {}\n",
+                    "\n",
+                    "for channel in eval_dataset:\n",
+                    "    cid = channel['channel_id']\n",
+                    "    cname = channel['channel_name']\n",
+                    "    stats = channel_stats[cid]\n",
+                    "    description = llm_analysis['global_performance_descriptions'][cid]\n",
+                    "    test_vids = channel['test_videos']\n",
+                    "    \n",
+                    "    print(f\"--- Predicting Global for {cname} ---\")\n",
+                    "    predictions = []\n",
+                    "    \n",
+                    "    for i in range(0, len(test_vids), 10):\n",
+                    "        batch = test_vids[i:i+10]\n",
+                    "        titles = \"\\n\".join([f\"{j+1}. {v['title']}\" for j, v in enumerate(batch)])\n",
+                    "        \n",
+                    "        prompt = f\"\"\"You are an expert YouTube performance analyst.\n",
+                    "Channel: {cname}\n",
+                    "Success Drivers Description:\n",
+                    "{description}\n",
+                    "\n",
+                    "Context (Logarithmic Views from Training Data):\n",
+                    "- Min: {stats['min']:.2f}\n",
+                    "- Max: {stats['max']:.2f}\n",
+                    "- Average: {stats['mean']:.2f}\n",
+                    "- Q1 (25th): {stats['q1']:.2f}\n",
+                    "- Median: {stats['median']:.2f}\n",
+                    "- Q3 (75th): {stats['q3']:.2f}\n",
+                    "\n",
+                    "Task: Predict the logarithmic views for the following 10 video titles. \n",
+                    "Your predictions must be integers (round numbers) in the logarithmic view space.\n",
+                    "Return ONLY a JSON list of 10 integers.\n",
+                    "\n",
+                    "Titles:\n",
+                    "{titles}\n",
+                    "\"\"\"\n",
+                    "        \n",
+                    "        res_text = get_gemini_completion(prompt, cache, f\"global_{cid}_batch_{i//10}\")\n",
+                    "        batch_preds = parse_batch_response(res_text, len(batch))\n",
+                    "        predictions.extend(batch_preds)\n",
+                    "        \n",
+                    "    global_results[cid] = predictions"
+                ]
+            },
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    "## 5. Prediction Engine: Dimension Analysis Predictions\n",
+                    "\n",
+                    "Predicting views in batches of 10 using significant dimensions and their PCA values."
+                ]
+            },
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": [
+                    "dim_results = {}\n",
+                    "\n",
+                    "for channel in eval_dataset:\n",
+                    "    cid = channel['channel_id']\n",
+                    "    cname = channel['channel_name']\n",
+                    "    stats = channel_stats[cid]\n",
+                    "    dim_analysis = llm_analysis['channel_significant_dimension_analysis'][cid]\n",
+                    "    test_vids = channel['test_videos']\n",
+                    "    \n",
+                    "    # Find which dimensions are significant for this channel\n",
+                    "    p_values = np.array(channel['model']['p_values'][1:])\n",
+                    "    sig_indices = np.argsort(p_values)[:5]\n",
+                    "    \n",
+                    "    print(f\"--- Predicting Dimensions for {cname} ---\")\n",
+                    "    predictions = []\n",
+                    "    \n",
+                    "    for i in range(0, len(test_vids), 10):\n",
+                    "        batch = test_vids[i:i+10]\n",
+                    "        \n",
+                    "        titles_with_pca = \"\"\n",
+                    "        for j, v in enumerate(batch):\n",
+                    "            pca_vals = [f\"Dim {idx}: {v['reduced_embedding'][idx]:.3f}\" for idx in sig_indices]\n",
+                    "            titles_with_pca += f\"{j+1}. {v['title']} ({', '.join(pca_vals)})\\n\"\n",
+                    "\n",
+                    "        prompt = f\"\"\"You are an expert YouTube performance analyst using semantic latent dimensions.\n",
+                    "Channel: {cname}\n",
+                    "Dimension Analysis for this channel:\n",
+                    "{dim_analysis}\n",
+                    "\n",
+                    "Context (Logarithmic Views from Training Data):\n",
+                    "- Min: {stats['min']:.2f}\n",
+                    "- Max: {stats['max']:.2f}\n",
+                    "- Average: {stats['mean']:.2f}\n",
+                    "- Q1 (25th): {stats['q1']:.2f}\n",
+                    "- Median: {stats['median']:.2f}\n",
+                    "- Q3 (75th): {stats['q3']:.2f}\n",
+                    "\n",
+                    "Task: Predict the logarithmic views for the following 10 video titles based on their specific dimension scores.\n",
+                    "Your predictions must be integers (round numbers) in the logarithmic view space.\n",
+                    "Return ONLY a JSON list of 10 integers.\n",
+                    "\n",
+                    "Titles and Dim Scores:\n",
+                    "{titles_with_pca}\n",
+                    "\"\"\"\n",
+                    "        \n",
+                    "        res_text = get_gemini_completion(prompt, cache, f\"dim_{cid}_batch_{i//10}\")\n",
+                    "        batch_preds = parse_batch_response(res_text, len(batch))\n",
+                    "        predictions.extend(batch_preds)\n",
+                    "        \n",
+                    "    dim_results[cid] = predictions"
+                ]
+            },
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    "## 6. Evaluation and Comparative Analysis"
+                ]
+            },
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": [
+                    "metrics = []\n",
+                    "\n",
+                    "for channel in eval_dataset:\n",
+                    "    cid = channel['channel_id']\n",
+                    "    cname = channel['channel_name']\n",
+                    "    test_vids = channel['test_videos']\n",
+                    "    \n",
+                    "    actual = np.log1p([v['actual_views'] for v in test_vids])\n",
+                    "    numeric = np.log1p([v['predicted_views'] for v in test_vids])\n",
+                    "    llm_global = np.array(global_results[cid])[:len(actual)]\n",
+                    "    llm_dim = np.array(dim_results[cid])[:len(actual)]\n",
+                    "    \n",
+                    "    def get_metrics(act, pred):\n",
+                    "        if len(pred) < len(act): return None, None\n",
+                    "        return mean_absolute_error(act, pred), r2_score(act, pred)\n",
+                    "    \n",
+                    "    mae_num, r2_num = get_metrics(actual, numeric)\n",
+                    "    mae_glob, r2_glob = get_metrics(actual, llm_global)\n",
+                    "    mae_dim, r2_dim = get_metrics(actual, llm_dim)\n",
+                    "    \n",
+                    "    metrics.append({\n",
+                    "        \"channel\": cname,\n",
+                    "        \"MAE_Numeric\": mae_num, \"R2_Numeric\": r2_num,\n",
+                    "        \"MAE_LLM_Global\": mae_glob, \"R2_LLM_Global\": r2_glob,\n",
+                    "        \"MAE_LLM_Dim\": mae_dim, \"R2_LLM_Dim\": r2_dim\n",
+                    "    })\n",
+                    "\n",
+                    "df_metrics = pd.DataFrame(metrics)\n",
+                    "display(df_metrics)\n",
+                    "\n",
+                    "print(\"\\n--- Mean Performance ---\")\n",
+                    "print(df_metrics.mean(numeric_only=True))"
+                ]
+            },
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    "## 7. Visualizations"
+                ]
+            },
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": [
+                    "# Comparison of MAE across methods\n",
+                    "plt.figure(figsize=(12, 6))\n",
+                    "df_plot = df_metrics.melt(id_vars=\"channel\", value_vars=[\"MAE_Numeric\", \"MAE_LLM_Global\", \"MAE_LLM_Dim\"], \n",
+                    "                          var_name=\"Method\", value_name=\"MAE\")\n",
+                    "sns.barplot(data=df_plot, x=\"channel\", y=\"MAE\", hue=\"Method\")\n",
+                    "plt.xticks(rotation=45, ha='right')\n",
+                    "plt.title(\"MAE Comparison: Numeric vs LLM (Global) vs LLM (Dimensions)\")\n",
+                    "plt.show()\n",
+                    "\n",
+                    "# Scatter plot for a sample channel\n",
+                    "sample_cid = eval_dataset[0]['channel_id']\n",
+                    "sample_name = eval_dataset[0]['channel_name']\n",
+                    "actual = np.log1p([v['actual_views'] for v in eval_dataset[0]['test_videos']])\n",
+                    "pred_glob = global_results[sample_cid][:len(actual)]\n",
+                    "pred_dim = dim_results[sample_cid][:len(actual)]\n",
+                    "\n",
+                    "plt.figure(figsize=(8, 8))\n",
+                    "plt.scatter(actual, pred_glob, alpha=0.5, label=\"Global LLM\")\n",
+                    "plt.scatter(actual, pred_dim, alpha=0.5, label=\"Dimension LLM\", marker='x')\n",
+                    "plt.plot([min(actual), max(actual)], [min(actual), max(actual)], 'r--', label=\"Ideal\")\n",
+                    "plt.xlabel(\"Actual Log Views\")\n",
+                    "plt.ylabel(\"Predicted Log Views\")\n",
+                    "plt.title(f\"Actual vs Predicted: {sample_name}\")\n",
+                    "plt.legend()\n",
+                    "plt.show()"
+                ]
+            },
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    "## 8. Final Analysis and Interpretation\n",
+                    "\n",
+                    "### Findings\n",
+                    "1. **Global vs. Dimension Predictions**: Compare if giving the LLM raw PCA values and dimension descriptions improves its grasp of the semantic space compared to just high-level success drivers.\n",
+                    "2. **LLM vs. Numeric (OLS)**: Evaluate if the qualitative approach can compete with or exceed the statistical baseline.\n",
+                    "3. **Channel Sensitivity**: Identify which channels are easier for the LLM to 'understand' qualitatively.\n",
+                    "\n",
+                    "### Conclusion\n",
+                    "[Insert detailed interpretation based on results here]"
+                ]
+            }
+        ],
+        "metadata": {
+            "kernelspec": {
+                "display_name": "Python 3",
+                "language": "python",
+                "name": "python3"
+            },
+            "language_info": {
+                "codemirror_mode": {
+                    "name": "ipython",
+                    "version": 3
+                },
+                "file_extension": ".py",
+                "mimetype": "text/x-python",
+                "name": "python",
+                "nbconvert_exporter": "python",
+                "pygments_lexer": "ipython3",
+                "version": "3.10.12"
+            }
+        },
+        "nbformat": 4,
+        "nbformat_minor": 5
+    }
+    with open('numeric-inference/llm-evaluation.ipynb', 'w') as f:
+        json.dump(nb, f, indent=2)
+
+if __name__ == "__main__":
+    create_notebook()
