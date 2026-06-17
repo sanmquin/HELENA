@@ -1,0 +1,350 @@
+import json
+import os
+
+def create_notebook():
+    nb = {
+        "cells": [
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    "# LLM Pipeline for View Prediction Analysis\n",
+                    "\n",
+                    "This notebook uses Gemini 3.1 Flash lite to analyze video performance based on the dataset created by the `numeric_inference` notebook. It generates qualitative descriptions of video performance drivers and PCA dimensions to assist in view prediction.\n",
+                    "\n",
+                    "## Setup and Dependencies"
+                ]
+            },
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": [
+                    "# Install necessary libraries\n",
+                    "!pip install -q -U google-generativeai\n",
+                    "\n",
+                    "import os\n",
+                    "import json\n",
+                    "import time\n",
+                    "import numpy as np\n",
+                    "import pandas as pd\n",
+                    "from google.colab import drive, userdata\n",
+                    "import google.generativeai as genai\n",
+                    "from datetime import datetime\n",
+                    "\n",
+                    "# Mount Google Drive\n",
+                    "drive.mount('/content/drive')\n",
+                    "\n",
+                    "# Configure Gemini\n",
+                    "GEMINI_API_KEY = userdata.get('GEMINI_API_KEY')\n",
+                    "genai.configure(api_key=GEMINI_API_KEY)\n",
+                    "MODEL_NAME = 'gemini-3.1-flash-lite-latest'\n",
+                    "\n",
+                    "# Constants\n",
+                    "BASE_PATH = '/content/drive/MyDrive/Graphiko/exports/base_data/latest/'\n",
+                    "INPUT_FILE = os.path.join(BASE_PATH, 'top_significant_channels_eval.json')\n",
+                    "OUTPUT_FILE = os.path.join(BASE_PATH, 'llm_analysis_results.json')\n",
+                    "CACHE_FILE = os.path.join(BASE_PATH, 'gemini_cache.json')\n",
+                    "\n",
+                    "print(f\"Using input file: {INPUT_FILE}\")"
+                ]
+            },
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    "## Utility Functions\n",
+                    "\n",
+                    "Includes caching, retry logic, and request rate limiting."
+                ]
+            },
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": [
+                    "def load_cache():\n",
+                    "    if os.path.exists(CACHE_FILE):\n",
+                    "        with open(CACHE_FILE, 'r') as f:\n",
+                    "            return json.load(f)\n",
+                    "    return {}\n",
+                    "\n",
+                    "def save_cache(cache):\n",
+                    "    with open(CACHE_FILE, 'w') as f:\n",
+                    "        json.dump(cache, f, indent=4)\n",
+                    "\n",
+                    "def get_gemini_completion(prompt, cache, key, retries=3, sleep_time=2):\n",
+                    "    if key in cache:\n",
+                    "        return cache[key]\n",
+                    "    \n",
+                    "    model = genai.GenerativeModel(MODEL_NAME)\n",
+                    "    \n",
+                    "    for i in range(retries):\n",
+                    "        try:\n",
+                    "            response = model.generate_content(prompt)\n",
+                    "            text = response.text\n",
+                    "            cache[key] = text\n",
+                    "            save_cache(cache)\n",
+                    "            time.sleep(sleep_time)\n",
+                    "            return text\n",
+                    "        except Exception as e:\n",
+                    "            print(f\"Error on attempt {i+1}: {e}\")\n",
+                    "            if \"context\" in str(e).lower():\n",
+                    "                print(\"Context limit likely exceeded. Attempting to reduce prompt size...\")\n",
+                    "                lines = prompt.split('\\n')\n",
+                    "                if len(lines) > 20:\n",
+                    "                    prompt = '\\n'.join(lines[:10] + lines[-10:])\n",
+                    "            if i < retries - 1:\n",
+                    "                time.sleep(sleep_time * (i + 1))\n",
+                    "            else:\n",
+                    "                print(\"Max retries reached. Stopping pipeline.\")\n",
+                    "                raise e\n",
+                    "    return None"
+                ]
+            },
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    "## 1. Global Performance Analysis\n",
+                    "\n",
+                    "Analyzing top 25 and bottom 25 videos per channel to identify success drivers. These descriptions will be used to predict views on the testing data."
+                ]
+            },
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": [
+                    "with open(INPUT_FILE, 'r') as f:\n",
+                    "    dataset = json.load(f)\n",
+                    "\n",
+                    "cache = load_cache()\n",
+                    "global_explanations = {}\n",
+                    "\n",
+                    "for channel in dataset:\n",
+                    "    channel_name = channel['channel_name']\n",
+                    "    videos = sorted(channel['train_videos'], key=lambda x: x['actual_views'], reverse=True)\n",
+                    "    \n",
+                    "    top_25 = [v['title'] for v in videos[:25]]\n",
+                    "    bottom_25 = [v['title'] for v in videos[-25:]]\n",
+                    "    \n",
+                    "    prompt = f\"\"\"Analyze the following YouTube video titles from the channel '{channel_name}'.\n",
+                    "\n",
+                    "Top performing videos (most views):\n",
+                    "\"\"\" + \"\\n\".join(top_25) + \"\"\"\n",
+                    "\n",
+                    "Bottom performing videos (least views):\n",
+                    "\"\"\" + \"\\n\".join(bottom_25) + \"\"\"\n",
+                    "\n",
+                    "Task: Based on these examples, explain what makes videos perform well or poorly on this channel. Provide a concise, predictive description that can be used to estimate views for new titles.\n",
+                    "\"\"\"\n",
+                    "    \n",
+                    "    print(f\"\\n--- Analyzing Performance for {channel_name} ---\")\n",
+                    "    explanation = get_gemini_completion(prompt, cache, f\"perf_{channel['channel_id']}\")\n",
+                    "    global_explanations[channel['channel_id']] = explanation\n",
+                    "    print(f\"Result Summary: {explanation[:200]}...\")"
+                ]
+            },
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    "## 2. PCA Dimension Descriptions\n",
+                    "\n",
+                    "Generating descriptions for each of the 15 PCA dimensions using the MECE framework. We contrast the top 50 most positive and top 50 most negative videos for each dimension."
+                ]
+            },
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": [
+                    "all_train_videos = []\n",
+                    "for channel in dataset:\n",
+                    "    all_train_videos.extend(channel['train_videos'])\n",
+                    "\n",
+                    "num_dims = 15\n",
+                    "dimension_descriptions = []\n",
+                    "\n",
+                    "for d in range(num_dims):\n",
+                    "    sorted_by_dim = sorted(all_train_videos, key=lambda x: x['reduced_embedding'][d])\n",
+                    "    \n",
+                    "    bottom_50 = []\n",
+                    "    seen_b = set()\n",
+                    "    for v in sorted_by_dim:\n",
+                    "        if v['title'] not in seen_b:\n",
+                    "            bottom_50.append(v['title'])\n",
+                    "            seen_b.add(v['title'])\n",
+                    "        if len(bottom_50) == 50: break\n",
+                    "\n",
+                    "    top_50 = []\n",
+                    "    seen_t = set()\n",
+                    "    for v in reversed(sorted_by_dim):\n",
+                    "        if v['title'] not in seen_t:\n",
+                    "            top_50.append(v['title'])\n",
+                    "            seen_t.add(v['title'])\n",
+                    "        if len(top_50) == 50: break\n",
+                    "    \n",
+                    "    past_context = \"\\n\".join([f\"Dimension {i}: {desc[:150]}...\" for i, desc in enumerate(dimension_descriptions)])\n",
+                    "    \n",
+                    "    prompt = f\"\"\"You are defining latent semantic dimensions derived from PCA on YouTube titles. This is Dimension {d}.\n",
+                    "\n",
+                    "Constraint: PCA dimensions are orthogonal. Use the MECE framework to ensure your description of Dimension {d} does not overlap with previous dimensions.\n",
+                    "\n",
+                    "Previous Dimension Context:\n",
+                    "{past_context if past_context else 'None'}\n",
+                    "\n",
+                    "Representative titles for Dimension {d}:\n",
+                    "--- HIGHEST POSITIVE EMBEDDING ---\n",
+                    "\"\"\" + \"\\n\".join(top_50) + \"\"\"\n",
+                    "\n",
+                    "--- HIGHEST NEGATIVE EMBEDDING ---\n",
+                    "\"\"\" + \"\\n\".join(bottom_50) + \"\"\"\n",
+                    "\n",
+                    "Task: Describe what semantic concept Dimension {d} captures. Contrast what the positive end represents vs. the negative end. Keep it distinct from the previous dimensions.\n",
+                    "\"\"\"\n",
+                    "    \n",
+                    "    print(f\"\\n--- Describing Dimension {d} ---\")\n",
+                    "    desc = get_gemini_completion(prompt, cache, f\"dim_{d}\")\n",
+                    "    dimension_descriptions.append(desc)\n",
+                    "    print(f\"Result Summary: {desc[:200]}...\")"
+                ]
+            },
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    "## 3. Channel-Specific Driver Explanation (Top 5 Dimensions)\n",
+                    "\n",
+                    "Generating a detailed explanation of what drives performance for each channel using its top 5 most significant dimensions."
+                ]
+            },
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": [
+                    "channel_dim_analysis = {}\n",
+                    "\n",
+                    "for channel in dataset:\n",
+                    "    p_values = np.array(channel['model']['p_values'][1:])\n",
+                    "    coeffs = channel['model']['coefficients']\n",
+                    "    significant_indices = np.argsort(p_values)[:5]\n",
+                    "    \n",
+                    "    dim_info = []\n",
+                    "    for idx in significant_indices:\n",
+                    "        impact = \"POSITIVE\" if coeffs[idx] > 0 else \"NEGATIVE\"\n",
+                    "        mag = abs(coeffs[idx])\n",
+                    "        dim_info.append(f\"Dimension {idx} (P-value: {p_values[idx]:.4e}, Effect: {impact}, Magnitude: {mag:.4f})\")\n",
+                    "        dim_info.append(f\"Description: {dimension_descriptions[idx]}\")\n",
+                    "        sorted_vids = sorted(channel['train_videos'], key=lambda x: x['reduced_embedding'][idx])\n",
+                    "        dim_info.append(f\"- Top channel titles in this dim: \" + \", \".join([v['title'] for v in sorted_vids[-10:]]))\n",
+                    "        dim_info.append(f\"- Bottom channel titles in this dim: \" + \", \".join([v['title'] for v in sorted_vids[:10]]))\n",
+                    "        dim_info.append(\"\")\n",
+                    "\n",
+                    "    prompt = f\"\"\"Generate an explanation of what drives performance for the YouTube channel '{channel['channel_name']}'.\n",
+                    "\n",
+                    "We have identified the 5 most statistically significant PCA dimensions for this channel's view count:\n",
+                    "\n",
+                    "\"\"\" + \"\\n\".join(dim_info) + f\"\"\"\n",
+                    "\n",
+                    "Task: Using the information above, explain what drives performance for '{channel['channel_name']}'. \n",
+                    "Requirements:\n",
+                    "1. Order dimensions from most significant to least.\n",
+                    "2. Clearly explain if each dimension affects performance positively or negatively and to what extent.\n",
+                    "3. Use the provided examples to ground the explanation.\n",
+                    "4. Produce a single cohesive description that will be used for view prediction.\n",
+                    "\"\"\"\n",
+                    "    \n",
+                    "    print(f\"\\n--- Generating Channel Driver Analysis: {channel['channel_name']} ---\")\n",
+                    "    analysis = get_gemini_completion(prompt, cache, f\"chan_dim_{channel['channel_id']}\")\n",
+                    "    channel_dim_analysis[channel['channel_id']] = analysis\n",
+                    "    print(f\"Result Summary: {analysis[:200]}...\")"
+                ]
+            },
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    "## Export Results"
+                ]
+            },
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": [
+                    "final_output = {\n",
+                    "    \"global_performance_descriptions\": global_explanations,\n",
+                    "    \"dimension_definitions\": dimension_descriptions,\n",
+                    "    \"channel_significant_dimension_analysis\": channel_dim_analysis,\n",
+                    "    \"metadata\": {\n",
+                    "        \"generated_at\": datetime.now().isoformat(),\n",
+                    "        \"model\": MODEL_NAME,\n",
+                    "        \"input_file\": INPUT_FILE,\n",
+                    "        \"num_dimensions\": num_dims\n",
+                    "    }\n",
+                    "}\n",
+                    "\n",
+                    "with open(OUTPUT_FILE, 'w') as f:\n",
+                    "    json.dump(final_output, f, indent=4)\n",
+                    "\n",
+                    "print(f\"\\n[SUCCESS] Analysis results exported to {OUTPUT_FILE}\")"
+                ]
+            },
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    "## Stats and Summary"
+                ]
+            },
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": [
+                    "print(f\"Summary of processing:\")\n",
+                    "print(f\"- Channels Analyzed: {len(global_explanations)}\")\n",
+                    "print(f\"- Dimensions Described: {len(dimension_descriptions)}\")\n",
+                    "print(f\"- Timestamp: {final_output['metadata']['generated_at']}\")\n",
+                    "print(f\"- Output Path: {OUTPUT_FILE}\")"
+                ]
+            }
+        ],
+        "metadata": {
+            "kernelspec": {
+                "display_name": "Python 3",
+                "language": "python",
+                "name": "python3"
+            },
+            "language_info": {
+                "codemirror_mode": {
+                    "name": "ipython",
+                    "version": 3
+                },
+                "file_extension": ".py",
+                "mimetype": "text/x-python",
+                "name": "python",
+                "nbconvert_exporter": "python",
+                "pygments_lexer": "ipython3",
+                "version": "3.10.12"
+            }
+        },
+        "nbformat": 4,
+        "nbformat_minor": 4
+    }
+    with open('numeric-inference/llm-pipeline.ipynb', 'w') as f:
+        json.dump(nb, f, indent=4)
+    print("Notebook 'numeric-inference/llm-pipeline.ipynb' created successfully.")
+
+if __name__ == '__main__':
+    create_notebook()
