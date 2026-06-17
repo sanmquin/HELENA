@@ -38,6 +38,11 @@ type channels = {
     3. Analyzes correlation between label accuracy and prediction error.
     4. Compares performance across various segments (Tails vs Center, Above vs Below Average).
     5. Benchmarks qualitative LLM predictions against OLS numeric predictions.
+- `guided-inference.ipynb`: This notebook provides Gemini 3.1 Flash lite with qualitative "hints" to improve numeric view prediction:
+    1. Maps PCA embedding values to a 7-point qualitative scale (-3 to +3) based on the training distribution.
+    2. Constructs a rich prompt containing global success drivers, dimension definitions, and per-video labels for the 5 most significant dimensions.
+    3. Instructs Gemini to predict logarithmic views based on these hints and channel benchmarks.
+    4. Evaluates predictions against actual views and OLS benchmarks using MAE and R2.
 
 ## Exported Evaluation Dataset
 The notebook exports a dataset of the top 10 most significant channels (based on F-statistic p-value) to `top_significant_channels_eval.json`.
@@ -113,6 +118,22 @@ type FeatureEvaluationResults = {
         "numeric_prediction": number,
         "reduced_embedding": number[]
     }[]
+}[]
+```
+
+## Guided Inference Results
+The `guided-inference.ipynb` notebook exports its results to `guided_inference_results.json`.
+
+### Schema
+```typescript
+type GuidedInferenceResults = {
+    "title": string,
+    "predicted_log_views": number,
+    "actual_log_views": number,
+    "numeric_prediction": number,
+    "video_id": string,
+    "channel_id": string,
+    "channel_name": string
 }[]
 ```
 
