@@ -27,7 +27,9 @@ def create_notebook():
                 "metadata": {},
                 "outputs": [],
                 "source": [
-                    "!pip install -q -U google-generativeai pandas numpy matplotlib seaborn statsmodels scikit-learn\n",
+                    "# Install google-generativeai. We avoid upgrading standard libraries like numpy/pandas \n",
+                    "# to prevent version conflicts (e.g. NumPy 2.0 AttributeError) in the Colab environment.\n",
+                    "!pip install -q -U google-generativeai\n",
                     "\n",
                     "import os\n",
                     "import json\n",
