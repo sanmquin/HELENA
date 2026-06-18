@@ -43,6 +43,11 @@ type channels = {
     2. Constructs a rich prompt containing global success drivers, dimension definitions, and per-video labels for the 5 most significant dimensions.
     3. Instructs Gemini to predict logarithmic views based on these hints and channel benchmarks.
     4. Evaluates predictions against actual views and OLS benchmarks using MAE and R2.
+- `6.Results-analysis.ipynb`: A comprehensive analysis of all prediction models:
+    1. Compares Global LLM, Dimension LLM, Feature Evaluation LLM, and Guided Inference LLM against OLS benchmarks and baselines.
+    2. Provides channel-level and dataset-level accuracy metrics (MAE, R2, p-values).
+    3. Analyzes model bias and dispersion using normalized distributions.
+    4. Explores the correlation between LLM qualitative understanding (label accuracy) and quantitative performance.
 
 ## Exported Evaluation Dataset
 The notebook exports a dataset of the top 10 most significant channels (based on F-statistic p-value) to `top_significant_channels_eval.json`.
@@ -135,6 +140,21 @@ type GuidedInferenceResults = {
     "channel_id": string,
     "channel_name": string
 }[]
+```
+
+## LLM Evaluation Exports
+The `llm-evaluation.ipynb` notebook exports two datasets to Google Drive: `llm_global_results.json` and `llm_dimension_results.json`.
+
+### Schema
+```typescript
+type LLMEvaluationExport = {
+    [lowercase_title: string]: {
+        "video_id": string,
+        "predicted_log_views": number,
+        "channel_id": string,
+        "channel_name": string
+    }
+}
 ```
 
 ## Google Colab Usage
