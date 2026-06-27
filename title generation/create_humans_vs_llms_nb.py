@@ -71,7 +71,7 @@ builder.add_code([
     "drive.mount('/content/drive')\n",
     "\n",
     "BASE_PATH = '/content/drive/MyDrive/numeric_inference_outputs/'\n",
-    "RESULTS_PATH = os.path.join(BASE_PATH, 'title_optimization_results.json')\n",
+    "RESULTS_PATH = os.path.join(BASE_PATH, 'title_optimization_results_v2.json')\n",
     "EVAL_DATA_PATH = os.path.join(BASE_PATH, 'top_significant_channels_eval.json')\n",
     "LLM_RESULTS_PATH = os.path.join(BASE_PATH, 'llm_analysis_results.json')\n",
     "TRAIN_DATA_PATH = os.path.join(BASE_PATH, 'train_structured_latest.json')\n",
